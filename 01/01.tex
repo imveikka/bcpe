@@ -1,0 +1,187 @@
+\documentclass[times, a4paper, 12pt, onecolumn, oneside]{article} 
+
+\usepackage[a4paper,left=2.0cm,right=2.0cm,bottom=1.0cm,top=2.0cm,includefoot,includehead]{geometry}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{graphicx} 
+\usepackage{fancyhdr}
+\usepackage{natbib}
+
+\newcommand{\bm}{\boldsymbol}
+
+\pagestyle{fancyplain}
+\date{}
+\lhead{{\em Immonen (LUT) }}
+\chead{Exercises Week 1}
+\rhead{\today}
+
+\bibliographystyle{apalike}
+
+\title{ Exercises Week 1}
+\author{Veikka Immonen}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Task 1}
+
+\subsection{Input grid}
+
+Input grid for 1D and 2D Cartesian spaces are
+\begin{equation}
+    T_\text{1D} = \{t_i\}_{i=0}^n = \left\{\frac{i}{n}\right\}_{i=0}^n
+\end{equation}
+and
+\begin{equation}
+    T_\text{2D} = \{t_{i,j}\}_{i,j=0}^n = \left\{\left(\frac{i}{n}, \frac{j}{n}\right)\right\}_{i,j=0}^n,
+\end{equation}
+respectively. Visual example in Figure~\ref{fig:grid}.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.8\textwidth]{./grids.pdf}
+    \caption{1D (left) and 2D (right) versions of the grid.}
+    \label{fig:grid}
+\end{figure}
+
+\subsection{GP using Matérn covariance}
+Matérn covariance is between two points is defined as
+\begin{equation}
+k(t, t') = \frac{1}{\Gamma(\nu)2^{\nu - 1}} \left(\frac{\sqrt{2\nu}}{\ell}\right)^\nu K_\nu\left(\frac{\sqrt{2\nu}}{\ell}||t - t'||\right),
+\end{equation}
+where $\Gamma$ is the gamma function, $K_\nu$ is the modified Bessel function of the second kind, and $\ell$ and $\nu$ are positive tunable length and differentiability parameters, respectively.
+
+Realisations of the process in grid $T$ are sampled by projecting normal Gaussian noise $W$ with Cholesky decomposition of covariance matrix $C_T$
+\begin{equation}
+X_\omega = LW,\ W\sim\mathcal{N}(0, I),\ LL^\intercal = C_T
+\end{equation}
+Both 1D and 2D random realisations are presented in Figure~\ref{fig:realisations}.
+
+\begin{figure}
+    \includegraphics[width=\textwidth]{./realisations.pdf}
+    \caption{1D (top) and 2D (bottom) realisations of the Gaussian process.}
+    \label{fig:realisations}
+\end{figure}
+
+\section{Task 2}
+
+\subsection{Realisations}
+
+Throughout the exercise, a Matérn kernel using $\nu=1.5$, and $\ell=0.1$ is used. No noise is added to the data, but it is assumed the noise in the observations is Gaussian $\epsilon\sim\mathcal{N}(0, \sigma^2),\ \sigma=0.1$.
+
+\subsection{Closed-form matrix formulas}
+
+In Gaussian process regression, measured data $X$ and underlying true process $X_*$ has a joint probability
+\begin{equation}
+    \begin{pmatrix}
+    X \\ X_*
+    \end{pmatrix}
+    \sim \mathcal{N}
+    \left(
+    \bm{0}, \begin{pmatrix}
+    K(T, T) + \sigma^2 I & K(T, T_*) \\
+    K(T_*, T) & K(T_*, T_*)
+    \end{pmatrix}
+    \right),
+\end{equation}
+where $\sigma$ is the underlying noise of the measurements, and $K(T, T_*)$ denotes $n\times n_*$ covariance matrix evaluated pairwise at all points of $T$ and $T_*$, and similarly for the other sub-matrices.
+Conditioning $X_*$ to measurements gives the Gaussian
+\begin{equation}
+X_* | T, T_*, X \sim \mathcal{N}({\bar{X}_*, \mathrm{cov}(X_*)})
+\end{equation}
+where
+\begin{equation}
+\bar{X}_* = K(T_*, T) (K(T, T) + \sigma^2 I)^{-1} X,
+\end{equation}
+and
+\begin{equation}
+\mathrm{cov}(X_*) = K(T_*, T_*) - K(T_*, T) (K(T, T) + \sigma^2 I)^{-1} K(T, T_*).
+\end{equation}
+Examples using different observation sizes are presented in Figure~\ref{fig:gpr_1d}.
+
+\begin{figure}
+    \includegraphics[width=\textwidth]{./gpr_1d.pdf}
+    \caption{GPr fits to 3 different sized realisations.}
+    \label{fig:gpr_1d}
+\end{figure}
+
+\subsection{MCMC: MH vs. pCN}
+
+The only two differences between Metropolis-Hastings (MH) sampling and preconditioned Crank-Nicolson (pCN) sampling are
+\begin{enumerate}
+    \item proposal sampling
+    \begin{itemize}
+        \item MH: $X_*^{(t+1)} = X_*^{(t)} + \beta X_{*\omega}$
+        \item pCN: $X_*^{(t+1)} = \sqrt{1 - \beta^2} X_*^{(t)} + \beta X_{*\omega}$
+    \end{itemize}
+    \item proposal probability basis
+    \begin{itemize}
+        \item MH: posterior $p(X_*|X)$
+        \item pCN: likelihood $p(X|X_*)$
+    \end{itemize}
+\end{enumerate}
+where $\beta$ is a hyperparameter tuning the step size in the random walk.
+
+In this case, likelihood is defined as
+\begin{equation}
+    p(X|X_*) \propto \exp\left(-\frac{1}{2\sigma^2}||X - HX_*||^2\right)
+\end{equation}
+where, $H$ is a selection operator returning points from the sample corresponding to the realisation. Presumably $n < n_*$, so $H$ is simply a uniform subsampler.
+
+Prior is defined as
+\begin{equation}
+    p(X_*) \propto \exp\left(-\frac{1}{2}X_*^\intercal K_{T_*}^{-1} X_*\right)
+\end{equation}
+which by Bayes rule results to posterior
+\begin{equation}
+    p(X_*|X) \propto p(X_*)p(X|X_*) \propto \exp\left(-\frac{1}{2}(X_*^\intercal K_{T_*}^{-1} X_* + \sigma^{-2}||X - HX_*||^2)\right)
+\end{equation}
+
+Example fit using both samplers are presented in Figure~\ref{fig:mcmc_1d}.
+\begin{figure}
+    \includegraphics[width=\textwidth]{./mcmc_1d.pdf}
+    \caption{MCMC fit using MH (left) and pCN (right).}
+    \label{fig:mcmc_1d}
+\end{figure}
+
+To measure the performance of the samplers, the average acceptance probability is studied between the samplers. More importantly, how the
+acceptance probability changes, when $\beta$, $n$ (data size), or $n_*$ (fit size) changes. It is expected to observe similar results visualized in Figure~1 in \citep{cotter2013mcmc}. Near similar experiments are conducted:
+\begin{itemize}
+    \item fixed $n_*=640$, tested using:
+    \begin{itemize}
+        \item $n = 20, 40, 80, 160, 320$
+        \item $\beta = -3.0, -2.75, -2.5, ..., -1.0$
+        \item Results presented in Figure~\ref{fig:1d_n}
+    \end{itemize}
+    \item fixed $n=20$, tested using:
+    \begin{itemize}
+        \item $n = 40, 80, 160, 320, 640$
+        \item $\beta = -3.0, -2.75, -2.5, ..., -1.0$
+        \item Results presented in Figure~\ref{fig:1d_ns}
+    \end{itemize}
+\end{itemize}
+
+Increasing dimension of the problem deteriorates the results, which appears as decreasing average acceptance probability.
+With fixed $n_*$, the performance of the samplers are identical, which is expected: increasing dimensionality is more damaging in likelihood computation.
+However, when $n$ is fixed, the bottleneck shifts to the prior computation, which absent in pCN, and produces identical probabilites with different grid sizes, unlike MH.
+
+\begin{figure}
+    \includegraphics[width=\textwidth]{./1d_n.pdf}
+    \caption{Average acceptance probabilites accumulated during MH and pCN sampling, fixed model size.}
+    \label{fig:1d_n}
+\end{figure}
+
+
+\begin{figure}
+    \includegraphics[width=\textwidth]{./1d_ns.pdf}
+    \caption{Average acceptance probabilites accumulated during MH and pCN sampling, fixed data size.}
+    \label{fig:1d_ns}
+\end{figure}
+
+\bibliography{../template/references}
+
+\end{document}
