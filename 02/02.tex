@@ -1,0 +1,169 @@
+\documentclass[times, a4paper, 12pt, onecolumn, oneside]{article} 
+
+\usepackage[a4paper,left=2.0cm,right=2.0cm,bottom=1.0cm,top=2.0cm,includefoot,includehead]{geometry}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{graphicx} 
+\usepackage{fancyhdr}
+\usepackage{natbib}
+
+\pagestyle{fancyplain}
+\date{}
+\lhead{{\em Immonen (LUT) }}
+\chead{Exercises Week 2}
+\rhead{\today}
+
+\bibliographystyle{apalike}
+
+\title{ Exercises Week 2}
+\author{Veikka Immonen}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Tweaking $\nu$ and $\ell$}
+
+\subsection{One realisation of Matèrn process with $\nu=1.75$}
+
+Presented in Figure~\ref{fig:realizations}. A "true"
+process is taken using a grid of 1001 points. The
+"observed data" contains 51 evenly spaced points taken
+from the original process. Moreover, white noise
+$\epsilon \sim \mathcal{N}(0, 0.1^2)$ is added to the
+observations. As length scale was not specified here, so
+it is set to $\ell = 0.1$
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\textwidth]{./realisation_1d_51_1001.pdf}
+    \caption{One realisation of Matèrn process with $\nu=1.75$ and $\ell=0.1$. }
+    \label{fig:realizations}
+\end{figure}
+
+\subsection{Experimenting with $\nu=1, ...,5$}
+
+Using a grid with a step size of 0.25. The kernel is kept the same otherwise, i.e., $\ell=0.1$.
+Results presented in Figure~\ref{fig:nu_fits}. Mispecification in this case refers to
+any $\nu \ne p + \frac{1}{2},\ \mathbb{N}_+$. While nothing out of ordinary wasn't
+observed during computing the results, such $\nu$ is practice is not the best choice,
+due to huge increase in computing complexity in Matèrn covariance.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\textwidth]{./nu_fits_51_1001.pdf}
+    \caption{GPr fits with different $\nu$ values.}
+    \label{fig:nu_fits}
+\end{figure}
+
+\subsection{RMSE plot of $\nu$.}
+
+Presented in Figure~\ref{fig:nu_rmse}. Based on the RMSE, the best fit were obtained using $\nu=1.75$.
+However, the estimates with other $\nu$ are still satisfactory.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\textwidth]{./rmse_nu_1d_51_1001.pdf}
+    \caption{RMSE w.r.t. $\nu$.}
+    \label{fig:nu_rmse}
+\end{figure}
+
+\subsection{Same experiments, but with $\ell$}
+
+Tested on grid with $\ell = 10^{\{-3, -2.75, ..., 1\}}$, and $\nu=1.75$.
+
+All fits are presented in Figure~\ref{fig:ell_fits}, and RMSE plot is presented in Figure~\ref{fig:ell_rmse}.
+There is much more contrast between results with different $\ell$ values. A conclusion can be made: finetune $\ell$, not $\nu$.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\textwidth]{./ell_fits_51_1001.pdf}
+    \caption{GPr fits with different $\ell$ values.}
+    \label{fig:ell_fits}
+\end{figure}
+
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\textwidth]{./rmse_ell_1d_51_1001.pdf}
+    \caption{RMSE w.r.t. $\nu$.}
+    \label{fig:ell_rmse}
+\end{figure}
+
+\section{MCMC on both state and $\nu$}
+
+Now, the hierarchy in the system goes:
+
+$$
+\nu \longrightarrow K_\nu \longrightarrow X_* \longrightarrow X
+$$
+
+therefore
+
+$$
+p(\nu, X_* | X) \propto p(X | X_*, \nu) p(X_* | \nu) p(\nu)
+$$
+
+where
+
+$$
+p(X | X_*, \nu) = p(X | X_*) = \mathcal{N}(HX_*, \sigma_\epsilon^2 I),
+$$
+
+and
+
+$$
+p(X_* | \nu) = \mathcal{N}(0, K_\nu).
+$$
+
+Since $X_*$ is conditioned to $\nu$, blocking MCMC is performed,
+where $X_*$ and $\nu$ are sampled alternately using pCN and MH,
+respectively. Moreover, logarithm $z =\log_{10}(\nu)$ is sampled,
+to preserve values of $\nu$ in the positive range. The steps are roughly
+
+\begin{enumerate}
+\item Draw $X_*' \sim \mathcal{N}\left(\sqrt{1 - \beta_{X_*}^2} X_*^{(k)}, \beta_{X_*}^2 K_\nu\right)$ (pCN)
+\item Set $X_*^{(k+1)} = X_*'$ with probability $\min\left\{1, \frac{p(X | X_*')}{p(X | X_*^{(k)})}\right\}$, otherwise to $X_*^{(k)}$
+\item Draw $z' \sim \mathcal{N} \left( z^{(k)}, \beta_{\nu}^2 \right)$ (MH)
+\item Set $z^{(k + 1)} = z'$ with probability $\min\left\{1, \frac{p(z', X_*^{(k+1)} | X)}{p(z^{(k)}, X_*^{(k+1)} | X)}\right\}$, otherwise to $z^{(k)}$,
+\end{enumerate}
+assuming a Gaussian (symmetric) random walk in both proposals. Note, that
+$$
+\frac{p(z', X_*^{(k+1)} | X)}{p(z^{(k)}, X_*^{(k+1)} | X)} = \frac{p(X | X_*^{(k+1)}) p(X_*^{(k+1)} | z') p(z')}{p(X | X_*^{(k+1)}) p(X_*^{(k+1)} | z^{(k)}) p(z^{(k)})} = \frac{p(X_*^{(k+1)} | z') p(z')}{p(X_*^{(k+1)} | z^{(k)}) p(z^{(k)})}
+$$
+and
+\begin{itemize}
+\item $p(z) \propto \exp\left( -\frac{z^2}{2\sigma_z^2}\right)$
+\item $p(X_* | z) \propto \exp\left(-\frac{1}{2} (X_*^\intercal K_{e^z}^{-1} X_* + \log |K_{e^z}|)\right)$
+\item $p(X | X_*) \propto \exp\left(-\frac{1}{2\sigma_\epsilon^2} ||X - HX_*||^2\right)$
+\item $\beta_{X_*} = \beta_\nu = 0.01$
+\item $\sigma_\nu = 1.0$
+\item $\text{Length of the chain} = 10000$
+\end{itemize}
+
+Also, dimensions were reduced to $n_*=101$ (true process) and $n=21$ (data).
+The sampled distribution of $\nu$ is presented in Figure~\ref{fig:nu_dist},
+and the mean posterior fit to the data is presented in Figure~\ref{fig:mcmc}.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\textwidth]{./nu_chain.pdf}
+    \caption{Chain and histogram of $\nu$.}
+    \label{fig:nu_dist}
+\end{figure}
+
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\textwidth]{./mcmc.pdf}
+    \caption{MCMC fit of the state.}
+    \label{fig:mcmc}
+\end{figure}
+
+
+% \bibliography{../template/references}
+
+\end{document}
