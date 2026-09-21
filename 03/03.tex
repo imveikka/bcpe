@@ -1,0 +1,304 @@
+\documentclass[times, a4paper, 12pt, onecolumn, oneside]{article} 
+
+\usepackage[a4paper,left=2.0cm,right=2.0cm,bottom=1.0cm,top=2.0cm,includefoot,includehead]{geometry}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx} 
+\usepackage{fancyhdr}
+\usepackage{natbib}
+\usepackage{enumitem}
+\setlist{nosep}
+
+\pagestyle{fancyplain}
+\date{}
+\lhead{{\em Immonen (LUT) }}
+\chead{Exercises Week 3}
+\rhead{\today}
+
+\bibliographystyle{apalike}
+
+\title{ Exercises Week 3}
+\author{Veikka Immonen}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Continuation of GP regression from Ex. 1}
+
+\subsection{Generate the data from the underlying true process}
+
+Data is from a model
+$$
+y = Hx + \epsilon
+$$
+\begin{itemize}
+\item $x \sim \mathcal{GP}(0, c_\text{Matèrn}(x, x'))$
+\item $c_\text{Matèrn}(x, x') = \sigma^2 \frac{2^{1 - \nu}}{\Gamma(\nu)}\left(\sqrt{2\nu}\frac{||x - x'||}{\ell}\right)^\nu K_\nu\left(\sqrt{2\nu}\frac{||x - x'||}{\ell}\right)$
+\item $H$: select operator
+\item $\epsilon \sim \mathcal{N}(0, \sigma_\epsilon^2)$ 
+\item $n_\text{data} = 51$
+\item $n_\text{state} = 201$
+\end{itemize}
+The true process and the sampled data presented in Figure~\ref{fig:data}, which is used throughout the Task 1.
+
+\subsection{Hierarchical model}
+
+For starters. Let's consider the full hierarchical model, when both the state and all hyperparameters are estimated. Let $\theta:=(\nu, \ell, \sigma, \sigma_\epsilon^2)$. The posterior of the hierarchical model is
+$$
+p(x, \theta | y) \propto \underbrace{p(y | x, \theta)}_\text{likelihood} \underbrace{p(x | \theta)}_\text{prior} \underbrace{p(\theta)}_\text{hyperprior}
+$$
+We can estimate $x$ and $\theta$ using a Metropolis-within-Gibbs (MWG) schema:
+\begin{enumerate}
+\item Fix $\theta$ and propose new sample $x'$ using pCN:
+$$
+    \alpha_\text{pCN} = \min\left\{1, \frac{p(y|x',\theta)}{p(y|x,\theta)} \right\}
+$$
+\item Fix $x$ and propose new sample $\theta'$ using MH:
+$$
+    \alpha_\text{MH} = \min\left\{1, \frac{p(y|x,\theta')p(x | \theta')p(\theta')}{p(y|x,\theta)p(x | \theta)p(\theta)} \right\}, 
+$$
+\end{enumerate}
+assuming that the sampling is a zero-mean Gaussian random walk in both cases. Throughout the Task 1, following sampling arrangements are used:
+\begin{itemize}
+    \item $\theta_0 = (\nu_0, \ell_0, \sigma_0, \sigma_{\epsilon 0}^2) = (2.5, 0.1, 1.0, 0.1)$
+    \item $x_0 = \text{Linear fit to } (t_i, y_i)$
+    \item $\beta_x = 0.1$.
+\end{itemize}
+Chain length and $\beta_\theta$ are later specified for each sub-task. Note that for each non-sampled hyperparameter, the respective element from $\beta_\theta$ is set to zero.
+
+\subsection{Sample only $x$ and $\sigma_\epsilon$}
+
+Now the model is considerably simpler, since Matèrn covariance stays fixed. We end up with
+$$
+p(x, \sigma_\epsilon | y) \propto p(y | x, \sigma_\epsilon) p(x) p(\sigma_\epsilon),
+$$
+and the prior term cancels in $\alpha_\text{MH}$ computation. Note, that
+$$
+p(y|x',\sigma_\epsilon) \propto \exp\left(-\frac{1}{2\sigma_\epsilon^2} ||y-Hx||^2 \right).
+$$
+For this arrangement, 100000 samples of the state and hyperparameters are drawn for the chain.
+
+\subsubsection{Sampling $\sigma_\epsilon$ from log-Gaussian}
+
+Let $z := \log(\sigma_\epsilon^2) \sim \mathcal{N}(\mu_z, \sigma_z^2)$. We can sample $z$ directly and derive posterior as
+$$
+p(x, z | y) \propto p(y | x, z) p(x) p(z),
+$$
+where
+$$
+p(z) \propto \exp\left(-\frac{(\mu_z - z)^2}{2\sigma_z^2}\right).
+$$
+Now, we set $\mu_z = \log(0.1)$, $\sigma_z = 1.0$, and $\beta_z = 0.001$.
+Results are presented in Figure~\ref{fig:1_1_1}, including mean posterior state with credible intervals and RMSE to the true process, and chains, histograms and expected values of the sampled hyperparameters.
+
+\subsubsection{Sampling $\sigma_\epsilon$ from uniform distribution}
+
+Define $z$ as $|z| = \sigma_\epsilon^2$ and $z \sim \mathcal{U}\left[-\infty, \infty\right]$. Again we sample $z$ directly, with $\beta_z = 0.00$. Since z is uniform (and covariance hyperparameters are fixed), the posterior is equivalent to the likelihood.
+The results are presented similarly in Figure~\ref{fig:1_1_2}.
+
+\subsection{Sample only $x$ and $\nu$, $\sigma_\epsilon$}
+
+Now the posterior is
+$$
+p(x, \nu, \sigma_\epsilon | y) \propto p(y | x, \nu, \sigma_\epsilon) p(x | \nu) p(\nu, \sigma_\epsilon),
+$$
+yet $\alpha_\text{pCN}$ remains the same, but
+$$
+    \alpha_\text{MH} = \min\left\{1, \frac{p(y | x, \nu', \sigma_\epsilon') p(x | \nu') p(\nu', \sigma_\epsilon')}{p(y | x, \nu, \sigma_\epsilon) p(x | \nu) p(\nu, \sigma_\epsilon)} \right\},
+$$
+where
+$$
+p(x | \nu) \propto \exp\left(-\frac{1}{2} (x^\intercal K_\nu^{-1} x + \log |K_{\nu}|)\right)
+$$
+For this arrangement, 20000 samples of the state and hyperparameters are drawn for the chain.
+
+\subsubsection{Sampling $\sigma_\epsilon$ and $\nu$ from log-Gaussian}
+
+Let $z := \log((\nu, \sigma_\epsilon^2)) \sim \mathcal{N}(\mu_z, \mathrm{diag}\{\sigma_z^2\})$.
+For the sampling, $\mu_z = \log((1.5, 0.1))$, $\sigma_z = (1.0, 1.0)$, and $\beta_z = (0.01, 0001)$.
+Results are presented in Figure~\ref{fig:1_1_3}.
+
+\subsubsection{Sampling $\nu$ and $\sigma_\epsilon$ from uniform distribution}
+
+Define $z$ as $|z| = (\nu, \sigma_\epsilon^2)$ and $z \sim \mathcal{U}\left[-\infty, \infty\right]$. Only the hyperprior term calcels out in the $\alpha_\text{MH}$ computation.
+For the sampling, $\beta_z = (0.01, 0001)$.
+Results are presented in Figure~\ref{fig:1_1_4}.
+
+\subsection{How does the prior affect the estimates?}
+
+\begin{itemize}
+    \item Solution with log-Gaussian priors were more accurate, in terms of RMSE
+    \item Uniform prior caused to more regularization, resulting to an underfitted model.
+    \item Noise estimates were not stable (no convergence) or accurate in either case.
+    \item Matèrn smoothess estimates were stable, but converged to significantly greater value compared to the true one.
+\end{itemize}
+
+\section{From GPr to inverse problems}
+
+\subsection{Discrete matrix approximation}
+
+To discretize the model
+$$
+y(t) = \int K(t-t')x(t')dt' + \epsilon(t)
+$$
+to
+$$
+y = Kx + \epsilon
+$$
+Where $K$ is a convolution kernel with a local support. Now K is a boxcar kernel with parameter $a$.
+$$
+K_a(t - t') = \begin{cases}\frac{1}{2a}, & |t-t'| \le a \\ 0, & \text{otherwise}\end{cases}
+$$
+Normalization $\frac{1}{2a}$ makes the convolution a local average:
+$$
+y(t) = \frac{1}{2a}\int_{t-a}^{t+a}x(t')\text{d}t' + \epsilon(t).
+$$
+Define the underlying signal as
+$$
+x(t) = \begin{cases}
+\exp\left(4 - \frac{25}{10t(5 - 10t)}\right), & t\in(0,0.5) \\
+1, & t\in[0.7, 0.8] \\
+-1, & t\in(0.8, 0.9] \\
+0, & \text{otherwise}
+\end{cases},
+$$
+For the discrete problem, take $t_i = i \Delta t,\ i=0,...,n$ (state discretization), and approximate the integral by quadrature
+$$
+y_i \approx \sum_{j=0}^{N-1}K_a(t_i - t_j)x_j \Delta t
+$$
+Therefore in our forward matrix is:
+$$
+K_{i,j} = K_a(t_i - t_j) \Delta t.
+$$
+For the data composition:
+\begin{itemize}
+\item $a = 0.1$
+\item $\epsilon \sim \mathcal{N}(0, 0.1^2)$ 
+\item $n_\text{data} = 51$
+\item $n_\text{state} = 201$
+\end{itemize}
+True signal, and the data presented in Figure~\ref{fig:data2}.
+
+\subsection{Sample only $x$ and $\sigma_\epsilon$}
+
+The hierarchical model including the simplifications along the way remains pretty much the same. Only difference is that we are using a different linear operator
+Also, the sampled Matèrn process is using now $\sigma=2.0$ to match the process scale better to underlying signal.
+
+\subsubsection{Sampling $\sigma_\epsilon$ from log-Gaussian}
+
+Results presented in Figure~\ref{fig:2_1_1}.
+
+\subsubsection{Sampling $\sigma_\epsilon$ from uniform}
+
+Results presented in Figure~\ref{fig:2_1_2}.
+
+\subsection{Sample only $x$ and $\nu$, $\sigma_\epsilon$}
+
+\subsubsection{Sampling $\sigma_\epsilon$ and $\nu$ from log-Gaussian}
+
+Results presented in Figure~\ref{fig:2_1_3}.
+
+\subsubsection{Sampling $\sigma_\epsilon$ and $\nu$ from uniform}
+
+Results presented in Figure~\ref{fig:2_1_4}.
+
+\subsection{Considering the effect of burn-in, chain length and thinning.}
+
+Only the use of burn-in was considered during the exercise, as only the second half of the chain was used to measure mean states, their credible intervals, hyperparameter histograms and their expected values.
+
+Did the designed burn-in produce more accurate results? Not necessarily. Again $\sigma_\epsilon$ seemed not to converge in most cases, where as $\nu$ converged almost instantly.
+
+
+\section{Figures}
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./data_and_true.pdf}
+    \caption{Task 1: Underlying process and the sampled data.}
+    \label{fig:data}
+\end{figure}
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./1_1_1_state.pdf}
+    \includegraphics[width=0.8\textwidth]{./1_1_1_pchain.pdf}
+    \includegraphics[width=0.8\textwidth]{./1_1_1_phist.pdf}
+    \caption{Task 1: Results of sampling $\sigma_\epsilon$ from log-Gaussian.}
+    \label{fig:1_1_1}
+\end{figure}
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./1_1_2_state.pdf}
+    \includegraphics[width=0.8\textwidth]{./1_1_2_pchain.pdf}
+    \includegraphics[width=0.8\textwidth]{./1_1_2_phist.pdf}
+    \caption{Task 1: Results of sampling $\sigma_\epsilon$ from uniform.}
+    \label{fig:1_1_2}
+\end{figure}
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./1_1_3_state.pdf}
+    \includegraphics[width=0.8\textwidth]{./1_1_3_pchain.pdf}
+    \includegraphics[width=0.8\textwidth]{./1_1_3_phist.pdf}
+    \caption{Task 1: Results of sampling $\nu$ and $\sigma_\epsilon$ from log-Gaussian.}
+    \label{fig:1_1_3}
+\end{figure}
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./1_1_4_state.pdf}
+    \includegraphics[width=0.8\textwidth]{./1_1_4_pchain.pdf}
+    \includegraphics[width=0.8\textwidth]{./1_1_4_phist.pdf}
+    \caption{Task 1: Results of sampling $\nu$ and $\sigma_\epsilon$ from uniform.}
+    \label{fig:1_1_4}
+\end{figure}
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./data_and_true_2.pdf}
+    \caption{Task 2: Underlying signal and the sampled data.}
+    \label{fig:data2}
+\end{figure}
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./2_1_1_state.pdf}
+    \includegraphics[width=0.8\textwidth]{./2_1_1_pchain.pdf}
+    \includegraphics[width=0.8\textwidth]{./2_1_1_phist.pdf}
+    \caption{Task 2: Results of sampling $\sigma_\epsilon$ from log-Gaussian.}
+    \label{fig:2_1_1}
+\end{figure}
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./2_1_2_state.pdf}
+    \includegraphics[width=0.8\textwidth]{./2_1_2_pchain.pdf}
+    \includegraphics[width=0.8\textwidth]{./2_1_2_phist.pdf}
+    \caption{Task 2: Results of sampling $\sigma_\epsilon$ from uniform.}
+    \label{fig:2_1_2}
+\end{figure}
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./2_1_3_state.pdf}
+    \includegraphics[width=0.8\textwidth]{./2_1_3_pchain.pdf}
+    \includegraphics[width=0.8\textwidth]{./2_1_3_phist.pdf}
+    \caption{Task 2: Results of sampling $\nu$ and $\sigma_\epsilon$ from log-Gaussian.}
+    \label{fig:2_1_3}
+\end{figure}
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./2_1_4_state.pdf}
+    \includegraphics[width=0.8\textwidth]{./2_1_4_pchain.pdf}
+    \includegraphics[width=0.8\textwidth]{./2_1_4_phist.pdf}
+    \caption{Task 2: Results of sampling $\nu$ and $\sigma_\epsilon$ from uniform.}
+    \label{fig:2_1_4}
+\end{figure}
+
+\end{document}
