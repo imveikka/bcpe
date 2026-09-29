@@ -1,0 +1,177 @@
+\documentclass[times, a4paper, 12pt, onecolumn, oneside]{article} 
+
+\usepackage[a4paper,left=2.0cm,right=2.0cm,bottom=1.0cm,top=2.0cm,includefoot,includehead]{geometry}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx} 
+\usepackage{fancyhdr}
+\usepackage{natbib}
+\usepackage{enumitem}
+\setlist{nosep}
+
+\pagestyle{fancyplain}
+\date{}
+\lhead{{\em Immonen (LUT)}}
+\chead{Exercises Week 4}
+\rhead{\today}
+
+\bibliographystyle{apalike}
+
+\title{ Exercises Week 4}
+\author{Veikka Immonen}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Continuation of GP regression from previous exercises}
+
+\subsection{Generate the data from the underlying true process}
+
+Generate noisy data to be modeled with
+\[
+y = Hx + \epsilon
+\]
+\begin{itemize}
+\item $\theta := (\nu, \ell, \sigma) = (2.5, 0.1, 1.0)$
+\item $x \sim \mathcal{GP}(0, c_\theta(x, x'))$
+\item $c_\theta(x, x') = \sigma^2 \frac{2^{1 - \nu}}{\Gamma(\nu)}\left(\sqrt{2\nu}\frac{||x - x'||}{\ell}\right)^\nu K_\nu\left(\sqrt{2\nu}\frac{||x - x'||}{\ell}\right)$
+\item $H$: select operator
+\item $\epsilon \sim \mathcal{N}(0, \sigma_\epsilon^2), ~ \sigma_\epsilon = 0.2$ 
+\item $n_\text{data} = 51$
+\item $n_\text{state} = 1001$
+\end{itemize}
+Presented in Figure~\ref{fig:data}
+
+\subsection{Sample $x$ and $\ell$}
+
+The full hierarchical model is
+\[
+p(x, \theta | y) \propto \underbrace{p(y | x, \theta)}_\text{likelihood} \underbrace{p(x | \theta)}_\text{prior} \underbrace{p(\theta)}_\text{hyperprior}
+\]
+Now we sample $x$ and $\ell$, hence:
+\[
+p(x, \ell | y) \propto p(y | x) p(x | \ell) p(\ell),
+\]
+Like previously same Metropolis-within-Gibbs (MWG) -like schema is used again (with pCN in state sampling!).
+
+\subsection{SPDE Approximation}
+
+For the approximation, let $\alpha = \nu + \frac{d}{2}, ~ d = \dim(t)$, and set distance scale $\kappa = \frac{\sqrt{2\nu}}{\ell}$ in the Matérn covariance. Now, the covariance is a solution to SPDE
+\[
+\begin{aligned}
+\tau(\kappa^2 - \Delta)^\frac{\alpha}{2}\mathcal{X} &= \mathcal{W}, & \mathcal{W} &\sim \mathcal{N}(0, I),
+\end{aligned}
+\]
+where
+\[
+\begin{aligned}
+\tau^2 &= \frac{\Gamma(\nu)}{\Gamma(\alpha)(4\pi)^\frac{d}{4}\kappa^{2\nu}\sigma^2}, &
+\Delta = \sum_{i=1}^d \frac{\partial^2}{\partial t_i^2}
+\end{aligned}
+\]
+Approximation on a regular $d$-dimensional grid with spacing constants $h=\{h_1, ..., h_d\}$ using finite difference yields
+\[
+\begin{aligned}
+\tau(\kappa^2 - L^{(h)})^\frac{\alpha}{2}x &= w, & w &\sim \mathcal{N}(0, \underbrace{\prod_{i=1}^d \frac{1}{h_i}}_{=\delta} I),
+\end{aligned}
+\]
+where $L$ is a linear operator of second order central difference. Let $A^{(h)}:= \kappa I + L^{(h)}$. Now we get
+\[
+\begin{aligned}
+x &\sim \mathcal{N}(0, Q^{-1}) & Q &= \delta\tau^2 A^\alpha
+\end{aligned}
+\]
+While A is sparse and hence computationally easy to deal with, its inverse would be still dense. Also, $\alpha$ must be a positive integer. Therefore an alternative iterative sampling algorithm is used to prevent the computation of $Q^{-1}$:
+\begin{enumerate}
+\item $\xi \sim \mathcal{N}(0, I)$
+\item if $\alpha$ is odd:
+\begin{itemize}
+    \item solve $L^T\tilde{x}_0 = \xi, ~ LL^T = A$
+    \item $n_\text{iters} = \frac{\alpha - 1}{2}$
+\end{itemize}
+\item otherwise:
+\begin{itemize}
+    \item solve $\tilde{x}_0 = \xi$
+    \item $n_\text{iters} = \frac{\alpha}{2}$
+\end{itemize}
+\item for $i = 1,...,n_\text{iters}$:
+\begin{itemize}
+    \item solve $A\tilde{x}_{i} = \tilde{x}_{i-1}$
+\end{itemize}
+\item $x = \frac{\tilde{x}_{n_\text{iters}}} {\tau \sqrt{\delta}}$
+\end{enumerate}
+
+Moreover, the prior is also computed without constructing full $Q$. The full prior is
+\[
+p(x | \theta) \propto \exp\left(-\frac{1}{2}\left( x^TQx - \log |Q| + \frac{d}{2}\log2\pi \right) \right),
+\]
+where
+\begin{itemize}
+\item $x^T Qx = \delta\tau^2 x^T\underbrace{A...A}_{\times \alpha} x$
+\item $\log |Q| = \log |\tau^2 \delta A^\alpha| = 2n\log\tau + n\log\delta + \alpha\log|A|$
+\end{itemize}
+
+\subsection{Arrangements}
+
+\begin{itemize}
+\item $(\nu_0, \ell_0, \sigma_0, \sigma_{\epsilon0}) = (2.5, 0.1, 1.0, 0.2)$
+\item $\beta_x = \beta_\ell = 0.1$
+\item log-Gaussian hyperprior: $\log\ell \sim \mathcal{N}(\log 0.2, 1.0^2)$
+\item $\text{Chain length} = 10000$
+\end{itemize}
+
+\subsection{Sample with full covariance}
+
+With given environment, sampling took approximately 60 seconds.
+Results presented in Figure~\ref{fig:1_1_1}.
+
+\subsection{Sample with SPDE covariance}
+
+With given environment, sampling took less than 10 seconds.
+Results presented in Figure~\ref{fig:1_1_2}.
+
+
+
+\subsection{Remarks}
+
+Utilizing sparse matrices via SPDE approximation in Matérn field sampling provides remarkably efficient approach to sample states and compute probability density values.
+
+Boundary effects were considered by adding new grid points with original spacing beyond original boundaries. If padding is not added, Laplacian operator add first order difference to boudary points, which
+equals to adding homogeneous Neumann boundary condition $\nabla x(t) = 0, ~ t \in \partial\Omega$ to the SPDE. padding reduced the effect of the condition in the sampled area.
+
+
+\section*{Figures}
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./data_and_true.pdf}
+    \caption{True process realization and the noisy data.}
+    \label{fig:data}
+\end{figure}
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./1_1_1_state.pdf}
+    \includegraphics[width=0.8\textwidth]{./1_1_1_pchain.pdf}
+    \includegraphics[width=0.8\textwidth]{./1_1_1_phist.pdf}
+    \caption{Task 1: Results of sampling $x$ (full covariance) and $\ell$}
+    \label{fig:1_1_1}
+\end{figure}
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.8\textwidth]{./1_1_2_state.pdf}
+    \includegraphics[width=0.8\textwidth]{./1_1_2_pchain.pdf}
+    \includegraphics[width=0.8\textwidth]{./1_1_2_phist.pdf}
+    \caption{Task 1: Results of sampling $x$ (SPDE covariance) and $\ell$}
+    \label{fig:1_1_2}
+\end{figure}
+
+
+% \bibliography{../template/references}
+
+\end{document}
