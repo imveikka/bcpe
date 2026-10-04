@@ -2,7 +2,7 @@ from collections.abc import Iterable
 import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
-from sksparse.cholmod import cholesky as spchol
+from sksparse.cholmod import cholesky
 
 from util import log_tau
 
@@ -10,18 +10,18 @@ from util import log_tau
 def build_laplacian_1d(n, step_inv, periodic=False):
     c = step_inv**2
     L = sp.diags(
-        diagonals=[-c , 2*c, -c],
+        diagonals=[c , -2*c, c],
         offsets=[-1, 0, 1],
-        shape=(n, ), format="lil"
+        shape=(n, n), format="lil"
     )
     if periodic:
-        L[0, -1] = -c
-        L[-1, 0] = -c
+        L[0, -1] = c
+        L[-1, 0] = c
     else:
         # Homogeneous Neumann boundaries.
         L[0, 0] = -c
         L[-1, -1] = -c
-    return L
+    return L.tocsc()
 
 
 def build_laplacian(shape, step_inv, periodic=None):
@@ -43,7 +43,7 @@ def build_laplacian(shape, step_inv, periodic=None):
             sp.kron(sp.eye(left, format="csc"), L),
             sp.eye(right, format="csc")
         )
-        out = term if term is None else out + term
+        out = term if out is None else out + term
 
     return out
 
@@ -69,6 +69,8 @@ class MaternFDMSPDESampler:
             Matérn length scale.
         sigma : float
             Marginal standard deviation.
+        pad : int
+            Size of extension beyond boundary, if axis is non-periodic
 
         Notes
         -----
@@ -77,16 +79,23 @@ class MaternFDMSPDESampler:
         invalidate cached quantities, its factorization, and log(det(K)).
         """
 
+        assert nu > 0
+        assert ell  > 0
+        assert sigma > 0
+
         self.d = len(boundaries)
         alpha_float = nu + self.d / 2
         alpha = round(alpha_float)
+        assert np.isclose(alpha_float, alpha) and alpha >= 1, (
+            "alpha = nu + d/2 must be an integer >= 1"
+        )
 
-        self.boundaries = tuple(map(tuple, (boundaries)))
+        self.boundaries = tuple(map(tuple, boundaries))
         self.shape = tuple(shape)
         self.periodic = tuple(map(bool, periodic))
         self.pad = pad
         self.shape_extended = tuple(
-            n if p else n + 2
+            n if p else n + 2 * self.pad
             for n, p in zip(self.shape, self.periodic)
         )
         self.step_inv = np.array([
@@ -94,23 +103,24 @@ class MaternFDMSPDESampler:
             for (a, b), n, p in zip(self.boundaries, self.shape, self.periodic)
         ])
         self.slices = tuple(
-            slice(None) if p else slice(1, -1)
+            slice(None) if p else slice(self.pad, -self.pad) if self.pad > 0 else slice(None)
             for p in self.periodic
         )
 
-        self.n = np.prod(self.shape)
+        self.n = np.prod(self.shape_extended)
+        self.vol_sqrt = np.sqrt(np.prod(1.0 / self.step_inv))
         self.nu = nu
         self.ell = ell
-        self.kappa = 1 / self.ell
         self.sigma = sigma
+        self.kappa = np.sqrt(2 * self.nu) / self.ell
         self.alpha = alpha
 
-        self.L = build_laplacian(self.shape, )
-        self.K = self.kappa**2 * sp.eye(self.n) + self.L
-        self.solve_K = spla.factorized(self.K)
-        self.L_K, self.p_K = spchol(self.K, lower=True)
-        self.pinv_K = np.argsort(self.p_K)
-        self.logdet_K = 2.0 * np.log(self.L_K.diagonal()).sum()
+        self.L = build_laplacian(self.shape_extended, self.step_inv, self.periodic)
+        self.A = self.kappa**2 * sp.eye(self.n, format="csc") - self.L
+        self.solve_A = sp.linalg.factorized(self.A)
+        self.L_A, self.p_A = cholesky(self.A, lower=True)
+        self.pinv_A = np.argsort(self.p_A)
+        self.logdet_A = 2.0 * np.log(self.L_A.diagonal()).sum()
 
         self.tau = np.exp(log_tau(self.d, self.nu, self.kappa, self.sigma))
 
@@ -130,23 +140,23 @@ class MaternFDMSPDESampler:
         """
 
         z = np.random.randn(self.n, n_samples)
-        if self.alpha % 2 == 0:
-            w = self.solve_K(z)
-            iters = self.alpha // 2 - 1
+        if self.alpha % 2 == 1:
+            z = z[self.p_A, :]
+            w = sp.linalg.spsolve_triangular(self.L_A.T, z, lower=False)
+            w = w[self.pinv_A, :]
         else:
-            z = z[self.p_K, :]
-            w = spla.spsolve_triangular(self.L_K.T, z, lower=False)
-            w = w[self.pinv_K, :]
-            iters = (self.alpha - 1) // 2
+            w = z
 
-        for _ in range(iters):
-            w = self.solve_K(w)
+        for _ in range(self.alpha // 2):
+            w = self.solve_A(w)
 
-        w = w.reshape((self.n, *self.shape))
+        w = w.T.reshape((n_samples, *self.shape_extended))
+        if not extended:
+            w = w[(slice(None), *self.slices)]
         if n_samples == 1:
-            w = w.ravel()
+            w = w[0]
 
-        return w.T / self.tau
+        return w / (self.tau * self.vol_sqrt)
 
 
     def logpdf(self, x):
@@ -155,7 +165,7 @@ class MaternFDMSPDESampler:
 
         Parameters
         ----------
-        x : ndarray, shape (n,) or (n_samples, n)
+        x : ndarray, of shape_extended or (n_samples, *shape_extended)
             Field realization(s).
 
         Returns
@@ -164,28 +174,27 @@ class MaternFDMSPDESampler:
             Log-density for each realization.
         """
 
-        x = np.asarray(x)
-        if x.ndim == 1:
-            assert x.shape[0] == self.n
-            x = x[None, :]
+        if x.ndim == len(self.shape):
+            assert x.shape == self.shape_extended
+            x = x.ravel().reshape((1, -1))
             scalar = True
-        elif x.ndim == 2:
-            assert x.shape[1] == self.n
+        elif x.ndim == len(self.shape) + 1:
+            assert x.shape[1:] == self.shape_extended
+            x = x.reshape((x.shape[0], -1))
             scalar = False
         else:
-            raise ValueError("x must have shape (n,) or (n_samples, n)")
+            raise ValueError("x must have shape shape_extended or (n_samples, *shape_extended)")
         x = x.T
 
-        qx = self.K @ x
-        for _ in range(self.alpha - 1):
-            qx = self.K @ (qx / self.C_L[:, None])
+        qx = x
+        for _ in range(self.alpha):
+            qx = self.A @ qx
 
-        quad = self.tau**2 * np.sum(x * qx, axis=0)
+        quad = self.tau**2 * self.vol_sqrt**2 * np.sum(x * qx, axis=0)
 
         logdet_Q = (
-            2.0 * self.n * np.log(self.tau)
-            + self.alpha * self.logdet_K
-            - (self.alpha - 1) * self.logdet_C_L
+            2.0 * self.n * (np.log(self.tau) + np.log(self.vol_sqrt))
+            + self.alpha * self.logdet_A
         )
 
         logp = (
@@ -216,13 +225,12 @@ class MaternFDMSPDESampler:
 
         Notes
         -----
-        This is a soft copy rather than a deep copy. The FEM matrices C and G,
-        and their derived mass-lumping quantities, are intentionally shared
-        between the original and cloned samplers.
+        This is a soft copy rather than a deep copy. matrices 
+        are intentionally shared between the original and cloned samplers.
 
-        If ell is unchanged, the expensive K-dependent state is also shared:
+        If ell is unchanged, the expensive A-dependent state is also shared:
         K, its Cholesky factorization, permutation, solver, and log-determinant.
-        If ell changes, these quantities are recomputed for the new K.
+        If ell changes, these quantities are recomputed for the new A.
 
         The shared matrices and cached arrays are therefore assumed to be
         read-only after construction.
@@ -230,23 +238,28 @@ class MaternFDMSPDESampler:
 
         new = object.__new__(type(self))
 
+        new.d = self.d
+        new.boundaries = self.boundaries
+        new.shape = self.shape
+        new.periodic = self.periodic
+        new.pad = self.pad
+        new.shape_extended = self.shape_extended
+        new.step_inv = self.step_inv
+        new.slices = self.slices
+
         new.nu = self.nu if nu is None else nu
         new.ell = self.ell if ell is None else ell
         new.sigma = self.sigma if sigma is None else sigma
+        new.kappa = np.sqrt(2 * new.nu) / new.ell
+        new.tau = np.exp(log_tau(new.d, new.nu, new.kappa, new.sigma))
 
         assert new.nu > 0
         assert new.ell > 0
         assert new.sigma > 0
 
-        new.kappa = 1 / new.ell
-        new.C = self.C
-        new.G = self.G
-        new.d = self.d
-        new.n = self.n
-        new.C_L = self.C_L
-        new.logdet_C_L = self.logdet_C_L
-
-        new.tau = np.exp(log_tau(new.d, new.nu, new.kappa, new.sigma))
+        new.n = self.n 
+        new.vol_sqrt = self.vol_sqrt
+        new.L = self.L
 
         alpha_float = new.nu + new.d / 2
         alpha = round(alpha_float)
@@ -256,17 +269,17 @@ class MaternFDMSPDESampler:
         new.alpha = alpha
 
         if ell is None:
-            new.K = self.K
-            new.L_K = self.L_K
-            new.p_K = self.p_K
-            new.pinv_K = self.pinv_K
-            new.solve_K = self.solve_K
-            new.logdet_K = self.logdet_K
+            new.A = self.A
+            new.L_A = self.L_A
+            new.p_A = self.p_A
+            new.pinv_A = self.pinv_A
+            new.solve_A = self.solve_A
+            new.logdet_A = self.logdet_A
         else:
-            new.K = new.kappa**2 * new.C + new.G
-            new.L_K, new.p_K = spchol(new.K, lower=True)
-            new.pinv_K = np.argsort(new.p_K)
-            new.solve_K = spla.factorized(new.K)
-            new.logdet_K = 2.0 * np.log(new.L_K.diagonal()).sum()
-    
+            new.A = new.kappa**2 * sp.eye(new.n, format="csc") - new.L
+            new.solve_A = sp.linalg.factorized(new.A)
+            new.L_A, new.p_A = cholesky(new.A, lower=True)
+            new.pinv_A = np.argsort(new.p_A)
+            new.logdet_A = 2.0 * np.log(new.L_A.diagonal()).sum()
         return new
+

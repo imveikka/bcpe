@@ -78,8 +78,8 @@ def sample_log(zz, ss, sampler_pith, sampler_radius, R=1):
     dz = z[1] - z[0]
     nz, ns = zz.shape
 
-    assert sampler_pith.n == nz
-    assert sampler_radius.n == (nz * ns)
+    assert sampler_pith.shape[0] == nz
+    assert sampler_radius.shape == zz.shape
 
     xy_prime = sampler_pith(2).T
     r = R * np.exp(sampler_radius()).reshape(nz, ns)

@@ -1,0 +1,288 @@
+\documentclass[times, a4paper, 12pt, onecolumn, oneside]{article} 
+
+\usepackage[a4paper,left=2.0cm,right=2.0cm,bottom=1.0cm,top=2.0cm,includefoot,includehead]{geometry}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx} 
+\usepackage{fancyhdr}
+\usepackage{natbib}
+\usepackage{enumitem}
+
+\setlist{itemsep=0pt, parsep=0pt}
+\newcommand{\bm}{\boldsymbol}
+
+\pagestyle{fancyplain}
+\date{}
+\lhead{{\em Immonen (LUT) }}
+\chead{Exercises Week 5}
+\rhead{\today}
+
+\bibliographystyle{apalike}
+
+\title{ Exercises Week 5}
+\author{Veikka Immonen}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Blind convolution}
+
+\subsection{Problem definition and data gneration}
+
+Define the underlying (and unknown) signal $x: [0, 1] \rightarrow \mathbb{R}$ as
+$$
+x(t) = \begin{cases}
+\exp\left(4 - \frac{25}{10t(5 - 10t)}\right), & t\in(0,0.5) \\
+1, & t\in[0.7, 0.8] \\
+-1, & t\in(0.8, 0.9] \\
+0, & \text{otherwise}
+\end{cases},
+$$
+which is also periodic: $x(t + 1) = x(t)$. The inverse problem model is defined as
+$$
+y(t) = \int K_\theta(t - t'; \theta)x(t') ~\text{d}t'+ \epsilon(t),
+$$
+where the convolution operator $K$ as
+$$
+K(t; \theta) = \begin{cases}\frac{1}{2\theta}, & |t| \le \theta \\ 0, & \text{otherwise}\end{cases}
+$$
+Discrete matrix approximation is
+$$
+\bm{y} = \bm{K}_\theta \bm{x} + \bm{\epsilon},
+$$
+\begin{itemize}
+\item $\dim(\bm{y}) = n$, $\dim(\bm{x}) = n_*$, $n < n_*$
+\item $\bm{K}_\theta$: convolution operator
+\item $\bm{\epsilon} \sim \mathcal{N}(0, \sigma^2\bm{I})$
+\end{itemize}
+Moreover data generation uses the following parameters:
+\begin{itemize}
+\item $\theta = 0.05$
+\item $\sigma = 0.1$
+\item $n = 50$
+\item $n_* = 500$
+\end{itemize}
+Simulated data presented in Figure~\ref{fig:data}.
+
+\subsection{Estimating $x$ and $\theta$}
+
+Now $x$ assumed to be a Gaussian process of Matérn class, also periodic, with hyperparameters $\nu=1.5$, $\ell=0.05$, $\tau=1.0$. Moreover, let $\theta \sim \mathcal{U}[0, 1]$.
+
+\subsubsection{Using L-BFGS}
+
+Using loss function derived from negative log-posterior taking only terms dependent on $\bm{x}$ or $\theta$:
+$$
+-\log p(\bm{x}, \theta | y) \propto \frac{1}{2}(\bm{y} - \bm{K}_\theta \bm{x})^\intercal \bm{\Sigma}^{-1}(\bm{y} - \bm{K}_\theta \bm{x}) + \frac{1}{2} \bm{x}^\intercal \bm{C} \bm{x} + \text{constant}
+$$
+where now $\bm{\Sigma} = \sigma^2 \bm{I}$, and $\bm{C}$ is Matérn covariance. Initial values are $\bm{x}_0 = \bm{0}$ and $\theta_0 = 0.05$, and the local bounds are $x_i \in [-2, 2]$ and $\theta \in [0, 1]$. The results are presented in Figure~\ref{fig:lbfgs_1}.
+
+\subsubsection{Deriving $p(\bm{x} | \theta, \bm{y})$}
+
+With $\theta$ fixed, collect terms (likelihood and prior) from posterior that contribute in $\bm{x}$:
+$$
+\begin{aligned}
+-\log p(\bm{x} | \theta, \bm{y}) &\propto \frac{1}{2}(\bm{y} - \bm{K}_\theta \bm{x})^\intercal \bm{\Sigma}^{-1}(\bm{y} - \bm{K}_\theta \bm{x}) + \frac{1}{2} \bm{x}^\intercal \bm{C}^{-1} \bm{x} + \text{constant} \\
+&= \underbrace{\frac{1}{2}\bm{y}^\intercal \bm{\Sigma}^{-1} \bm{y}}_{\text{also constant}} - \bm{y}^\intercal \bm{\Sigma}^{-1} \bm{K}_\theta \bm{x} + \frac{1}{2} \bm{x}^\intercal \bm{K}_\theta^\intercal \bm{\Sigma}^{-1} \bm{K}_\theta \bm{x} + \frac{1}{2}\bm{x}^\intercal \bm{C}^{-1} \bm{x} + \text{constant} \\
+&= \frac{1}{2} \bm{x}^\intercal(\underbrace{\bm{C}^{-1} + \bm{K}_\theta^\intercal \bm{\Sigma}^{-1} \bm{K}_\theta}_{\bm{\Lambda}_\theta}) \bm{x} - \bm{y}^\intercal \bm{\Sigma}^{-1}\bm{K}_\theta \bm{x} + \text{constant}
+\end{aligned}
+$$
+Completing the square of form $(\bm{x}-\bm{M}\bm{y})^\intercal\bm{\Lambda}_\theta(\bm{x} - \bm{M}\bm{y})$ gives $\bm{M} = \bm{\Lambda}_\theta^{-1} \bm{K}_\theta^\intercal \bm{\Sigma}^{-1}$, therefore
+$$
+\begin{aligned}
+-\log p(\bm{x} | \theta, \bm{y}) &\propto \frac{1}{2}(\bm{x} - \bm{\Lambda}_\theta^{-1} \bm{K}_\theta^\intercal \bm{\Sigma}^{-1}\bm{y})^\intercal\bm{\Lambda}_\theta(\bm{x} - \bm{\Lambda}_\theta^{-1} \bm{K}_\theta^\intercal \bm{\Sigma}^{-1}\bm{y}) + \text{constant} \\
+\Leftrightarrow p(\bm{x} | \theta, \bm{y}) &= \mathcal{N}(\bm{\Lambda}_\theta^{-1} \bm{K}_\theta^\intercal \bm{\Sigma}^{-1}\bm{y}, \bm{\Lambda}_\theta^{-1})
+\end{aligned}
+$$
+Taking the defined noise and SPDE approximation into account, we have $\bm{\Sigma} = \sigma^2 \bm{I}$. Moreover, recall, that Matérn process using SPDE approximation yields
+$$
+\begin{aligned}
+\bm{x} &\sim \mathcal{N}(\bm{0}, \bm{Q}^{-1}), & \bm{Q} &= \delta\tau^2 \bm{A}^\alpha, & \bm{A} = \kappa^2 \bm{I} - \bm{L},
+\end{aligned}
+$$
+where $\alpha = \nu + \frac{d}{2}, ~ d = \dim(t)$, $\kappa = \frac{\sqrt{2\nu}}{\ell}$, $\delta = \prod_{i=1}^d \frac{1}{h_i}$ and
+$$
+\tau^2 = \frac{\Gamma(\nu)}{\Gamma(\alpha)(4\pi)^\frac{d}{4}\kappa^{2\nu}\sigma^2}.
+$$
+Now we have
+$$
+\bm{\Lambda}_\theta = \bm{Q} + \frac{1}{\sigma^2}\bm{K}_\theta^\intercal \bm{K}_\theta.
+$$
+Also, since $\nu=1.5$, i.e., $\alpha=2$, we get
+$$
+\begin{aligned}
+-\log p(\bm{x} | \theta, \bm{y}) &= \frac{1}{2} \bm{x}^\intercal(\bm{Q} + \frac{1}{\sigma^2}\bm{K}_\theta^\intercal \bm{K}_\theta) \bm{x} - \frac{1}{\sigma^2}\bm{y}^\intercal \bm{K}_\theta \bm{x} + \text{constant} \\
+&= \frac{1}{2} \Vert \sqrt{\delta}\tau\bm{A} \bm{x} \Vert^2 + \frac{1}{2\sigma^2}\Vert \bm{y} - \bm{K}_\theta \bm{x} \Vert^2 + \text{constant}, & (\sqrt{\delta}\tau\bm{A})^\intercal(\sqrt{\delta}\tau\bm{A}) = \delta\tau^2 \bm{A}^2 = \bm{Q} \\
+&= \frac{1}{2} \left\Vert \begin{pmatrix}\bm{0}\\\sigma^{-1}\bm{y}\end{pmatrix} - \begin{pmatrix}\sqrt{\delta}\tau\bm{A}\\\sigma^{-1}\bm{K}_\theta\end{pmatrix}\bm{x} \right\Vert^2 + \text{constant}
+\end{aligned}
+$$
+
+\subsubsection{Deriving $p(\bm{x} | \theta, \bm{y})$}
+
+Similarily, taking terms contributing in $\theta$ in posterior, when $\bm{x}$ is fixed, results in:
+$$
+\begin{aligned}
+p(\theta | \bm{x}, \bm{y}) &= \frac{1}{\sqrt{(2\pi)^n}\vert\bm{\Sigma}\vert}\exp\left(-\frac{1}{2}(\bm{y} - \bm{K}_\theta \bm{x})^\intercal \bm{\Sigma}^{-1}(\bm{y} - \bm{K}_\theta \bm{x}) \right) \bm{1}_{[0, 1]}(\theta)
+\end{aligned}
+$$
+
+\subsubsection{Sample $\bm{x}$ using Gibbs and $\theta$ using Metropolis–Hastings.}
+
+For $k=1,...,N_\text{chain}$
+\begin{enumerate}
+\item Gibbs: solve $\begin{pmatrix}\sqrt{\delta}\tau\bm{A}\\\sigma^{-1}\bm{K}_\theta\end{pmatrix}\bm{x}^{(k)} = \begin{pmatrix}\bm{0}\\\sigma^{-1}\bm{y}\end{pmatrix} + \bm{\xi}^{(k)}, ~ \bm{\xi}^{(k)}\sim\mathcal{N}(\bm{0}, \bm{I})$
+\item MH: accept $\theta^{(k)} \sim \mathcal{N}(\theta^{(k-1)}, \beta^2)$ with probability $\min \left\{1, \frac{p(\theta^{(k)} | \bm{x}^{(k)}, \bm{y})}{p(\theta^{(k-1)} | \bm{x}^{(k)}, \bm{y})}\right\}$
+\end{enumerate}
+Moreover, the initial value is $\theta^{(0)} = 0.05$, and $\beta = 0.01$. The chain length is $N_\text{chain} = 10000$, the burn-in size is $N_\text{burn} = 1000$, and the thinning interval is $N_\text{thinning} = 10$.
+Results are presented in Figure~\ref{fig:gibbs_mh_1}.
+
+\section{Kernel learning}
+
+\subsection{Discretization}
+
+Let $x: [0, 1] \rightarrow \mathbb{R}$ be periodic s.t. $x(t+1) = x(t)$, same with the kernel $K$. Data is generated as
+\begin{itemize}
+\item $\bm{x}_i \sim \text{matérn with } (\nu, \ell, \tau) = (1.5, 0.05, 1.0), ~ i=1,...,m$
+\item $\bm{y}_i = \bm{K}_{0.05} \bm{x}_i + \bm{\epsilon}_i, ~ \bm{\epsilon}_i \sim \mathcal{N}(\bm{0}, \sigma^2\bm{I}), ~ i = 1,...,m$
+\item $\sigma = 0.1$
+\item $\dim(\bm{x}_i) = \dim(\bm{k}) = 200$
+\item $\dim(\bm{y}_i) = 50$
+\item $m=20$ 
+\end{itemize}
+Simulated data is presented in Figure~\ref{fig:data2}. Now the boxcar structure is estimated as Matérn process with $(\nu, \ell, \tau) = (1.5, 0.05, 0.1)$. Since the discrete Kernel can be derived as a Toeplitz matrix
+$$
+\bm{K}_{\bm{k}} =
+\begin{pmatrix}
+k_1 & k_2 & \dots & k_n \\
+k_n & k_1 & \dots & \vdots \\
+\vdots & \vdots & \ddots & \vdots \\
+k_2 & \dots & k_n & k_1
+\end{pmatrix},
+$$
+the operation is linear on $\bm{k}$, i.e., for each $i=1,...,m$, there is $\bm{H}_i$, s.t.
+$$
+\bm{K}_{\bm{K}} \bm{x}_i = \bm{H}_i \bm{k},
+$$
+which is,
+$$
+\bm{H}_i =
+\begin{pmatrix}
+x_i^{(1)} & x_i^{(2)} & \dots & x_i^{(n)} \\
+x_i^{(2)} & x_i^{(3)} & \dots & x_i^{(1)} \\
+\vdots & \vdots & \ddots & \vdots \\
+x_i^{(n)} & \dots & x_i^{(2)} & x_i^{(1)}
+\end{pmatrix},
+$$
+Toeplitz w.r.t. its anti diagonal.
+
+\subsection{Estimating $K$}
+
+\subsubsection{Using L-BFGS}
+
+Involving the prior, loss function is derived from negative log-posterior taking only terms dependent on $\bm{k}$:
+$$
+\begin{aligned}
+-\log p(\bm{k} | \left\{(\bm{x}_i, \bm{y}_i)\right\}_{i=1,...,m}) &\propto \frac{1}{2} \sum_{i=1}^m (\bm{y}_i - \bm{K}_{\bm{k}} \bm{x}_i)^\intercal \bm{\Sigma}^{-1}(\bm{y}_i - \bm{K}_{\bm{k}} \bm{x}_i) + \frac{1}{2} \bm{k}^\intercal \bm{C}^{-1}_{\bm{k}} \bm{k} + \text{constant} \\
+&= \frac{1}{2} \sum_{i=1}^m (\bm{y}_i - \bm{H}_i\bm{k})^\intercal \bm{\Sigma}^{-1}(\bm{y}_i - \bm{H}_i \bm{k}) + \frac{1}{2} \bm{k}^\intercal \bm{C}_{\bm{k}}^{-1} \bm{k} + \text{constant} \\
+\end{aligned}
+$$
+where $\bm{\Sigma} = \sigma^2 \bm{I}$, and $\bm{C}_{\bm{k}}$ is Matérn covariance of $\bm{k}$.
+Boundary values were set to $k \in [-0.1, 0.1]$ and initial value was set to $\bm{k}_0 = \bm{0}$.
+Results presented in Figure~\ref{fig:lbfgs_2}.
+
+\subsubsection{Deriving $p(\bm{k} | \left\{(\bm{x}_i, \bm{y}_i)\right\}_{i=1,...,m})$}
+
+$$
+\begin{aligned}
+-\log p(\bm{k} | \left\{(\bm{x}_i, \bm{y}_i)\right\}_{i=1,...,m}) &= \frac{1}{2} \sum_{i=1}^m \left[ (\bm{y}_i - \bm{H}_i\bm{k})^\intercal \bm{\Sigma}^{-1}(\bm{y}_i - \bm{H}_i \bm{k}) + \frac{1}{m} \bm{k}^\intercal \bm{C}_{\bm{k}}^{-1} \bm{k} \right] + \text{constant} \\
+&= \frac{1}{2} \sum_{i=1}^m \left[ \bm{k}^\intercal \underbrace{ \left(\frac{1}{m}\bm{C}_{\bm{k}}^{-1} + \bm{H}_i^\intercal \bm{\Sigma}^{-1} \bm{H}_i \right)}_{\bm{\Lambda}_i} \bm{k} - 2\bm{y}_i^\intercal \bm{\Sigma}^{-1} \bm{H}_i \bm{k} \right] + \text{constant} \\
+\end{aligned}
+$$
+Completing the square of form $(\bm{k}-\bm{M}_i\bm{y})^\intercal\bm{\Lambda}_i(\bm{k} - \bm{M}_i\bm{y})$ gives $\bm{M}_i = \bm{\Lambda}_i^{-1} \bm{H}_i^\intercal \bm{\Sigma}^{-1}$, therefore
+$$
+\begin{aligned}
+-\log p(\bm{k} | \left\{(\bm{x}_i, \bm{y}_i)\right\}_{i=1,...,m}) &\propto \frac{1}{2} \sum_{i=1}^m (\bm{k} - \bm{\Lambda}_i^{-1} \bm{H}_i^\intercal \bm{\Sigma}^{-1}\bm{y})^\intercal\bm{\Lambda}_i(\bm{k} - \bm{\Lambda}_i^{-1} \bm{H}_i^\intercal \bm{\Sigma}^{-1}\bm{y}) + \text{constant} \\
+\Leftrightarrow p(\bm{k} | \left\{(\bm{x}_i, \bm{y}_i)\right\}_{i=1,...,m}) &= \prod_{i=1}^{m}\mathcal{N}(\bm{\Lambda}_i^{-1} \bm{H}_i^\intercal \bm{\Sigma}^{-1}\bm{y}, \bm{\Lambda}_i^{-1})
+\end{aligned}
+$$
+Doing all the same white noise / SPDE approximation shenanigans gives us $\bm{\Lambda}_i =  \frac{1}{m}\bm{Q}_{\bm{k}} + \frac{1}{\sigma^2}\bm{H}_i^\intercal \bm{H}_i$, and
+$$
+\begin{aligned}
+-\log p(\bm{k} | \left\{(\bm{x}_i, \bm{y}_i)\right\}_{i=1,...,m}) &= \frac{1}{2} \sum_{i=1}^m \left[ \bm{k}^\intercal \left(\frac{1}{m}\bm{Q}_{\bm{k}} + \frac{1}{\sigma^2}\bm{H}_i^\intercal \bm{H}_i \right) \bm{k} - \frac{2}{\sigma^2}\bm{y}_i^\intercal \bm{H}_i \bm{k} \right] + \text{constant} \\
+&= \frac{1}{2} \Vert \sqrt{\delta}\tau \bm{A} \bm{k} \Vert^2 + \frac{1}{2} \sum_{i=1}^m \frac{1}{\sigma^2} \Vert \bm{y}_i - \bm{H}_i \bm{k} \Vert^2 + \text{constant} \\
+&= \frac{1}{2} \left\Vert
+\begin{pmatrix}
+\bm{0}\\\sigma^{-1}\bm{y}_1\\\vdots\\\sigma^{-1}\bm{y}_m
+\end{pmatrix} -
+\begin{pmatrix}
+\sqrt{\delta}\tau \bm{A}\\\sigma^{-1}\bm{H}_1\\\vdots\\\sigma^{-1}\bm{H}_m\\
+\end{pmatrix} \bm{k}
+\right\Vert^2 + \text{constant}
+\end{aligned}
+$$
+
+\subsubsection{Sampling time}
+
+Gibbs sampler now repeats
+$$
+\bm{x}^{k} = \begin{pmatrix}
+\sqrt{\delta}\tau \bm{A}\\\sigma^{-1}\bm{H}_1\\\vdots\\\sigma^{-1}\bm{H}_m\\
+\end{pmatrix}^\dagger
+\left( \begin{pmatrix}
+\bm{0}\\\sigma^{-1}\bm{y}_1\\\vdots\\\sigma^{-1}\bm{y}_m
+\end{pmatrix} + \bm{\xi} \right) ~ \bm{\xi} \sim \mathcal{N}(\bm{0}, \bm{I})
+$$
+Moreover, the chain length is $N_\text{chain} = 10000$, neither burn-in nor thinning were used.
+Results presented in Figure~\ref{fig:gibbs_2}
+
+\section*{Figures}
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.8\textwidth]{./data_and_true_1.pdf}
+\caption{Task 1: True signal and noisy data.}
+\label{fig:data}
+\end{figure}
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.8\textwidth]{./estimated_process_l-bfgs_1.pdf}
+\caption{Task 1: Estimated signal and parameter using L-BFGS.}
+\label{fig:lbfgs_1}
+\end{figure}
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.8\textwidth]{./gibbs_mh_1.pdf}
+\caption{Task 1: Estimated signal and parameter using Gibbs and Metropolis–Hastings.}
+\label{fig:gibbs_mh_1}
+\end{figure}
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.8\textwidth]{./data_and_true_2.pdf}
+\caption{Task 1: True kernel and one data pair.}
+\label{fig:data2}
+\end{figure}
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.8\textwidth]{./l-bfgs_2.pdf}
+\caption{Task 2: Estimated kernel and effect on one data pair using L-BFGS.}
+\label{fig:lbfgs_2}
+\end{figure}
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.8\textwidth]{./gibbs_2.pdf}
+\caption{Task 2: Estimated kernel using Gibbs.}
+\label{fig:gibbs_2}
+\end{figure}
+
+
+% \bibliography{../template/references}
+
+\end{document}
