@@ -1,0 +1,113 @@
+\documentclass[times, a4paper, 12pt, onecolumn, oneside]{article} 
+
+\usepackage[a4paper,left=2.0cm,right=2.0cm,bottom=1.0cm,top=2.0cm,includefoot,includehead]{geometry}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx} 
+\usepackage{fancyhdr}
+\usepackage{natbib}
+\usepackage{enumitem}
+
+\setlist{itemsep=0pt, parsep=0pt}
+\newcommand{\bm}{\boldsymbol}
+
+\pagestyle{fancyplain}
+\date{}
+\lhead{{\em Immonen (LUT) }}
+\chead{Exercises Week 6}
+\rhead{\today}
+
+\bibliographystyle{apalike}
+
+\title{ Exercises Week 6}
+\author{Veikka Immonen}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Space-varying kernel width optimization}
+
+\subsection{Modification in the inverse problem model}
+
+The model originally is
+$$
+y(t) = [K * x](t) = \int_T K(t-t'; \underbrace{\theta(t')}_{\text{old}})x(t')~\text{d}t' + \epsilon(t),
+$$
+but $\theta$ probably should take $t$ instead of $t'$. Even if the kernel width varies over time,
+it should stay stationary during the integration w.r.t. $t$. Moreover, this formulation does not make the
+convolution commutative. Therefore the task estimates a modified model:
+$$
+y(t) = [K * x](t) = \int_T K(t-t'; \underbrace{\theta(t)}_{\text{new}})x(t')~\text{d}t' + \epsilon(t),
+$$
+which allows $K*x = x*K$. This also makes more sense considering we are dealing with a inverse problem, where the continuous samples
+(should) have different discretization compared to the observations.
+
+\subsection{Simulation (\texttt{06\char`_data.ipynb})}
+
+Let $x_i: [0, 1] \rightarrow \mathbb{R}$ be periodic s.t. $x_i(t+1) = x_i(t)$, same with the boxcar kernel $K(\cdot, \theta(t))$.
+Data is generated as
+\begin{itemize}
+\item $\bm{x}_i \sim \text{Matérn field with } (\nu, \ell, \tau) = (2.5, 0.05, 1.0), ~ i=1,...,m$, with process mean $\mu_{x} = 3.0$
+\item $\theta(t) = 0.01 + 0.09\left(1-\left(2t-1\right)^{2}\right)$
+\item $\bm{y}_i = \bm{K}_{\bm{\theta}} \bm{x}_i + \bm{\epsilon}_i, ~ \bm{\epsilon}_i \sim \mathcal{N}(\bm{0}, \sigma^2\bm{I}), ~ i = 1,...,m$
+\item $\sigma = 0.1$
+\item $\dim(\bm{x}_i) = \dim(\bm{\theta}) = 400$
+\item $\dim(\bm{y}_i) = 50$
+\item $m=20$ 
+\end{itemize}
+Kernel width function and two samples from the data is presented in Figure~\ref{fig:data_1}.
+
+\subsection{Neural network}
+
+The neural network $\theta(t) \approx \tilde{\theta}(t) = \Psi(\tilde{t}; \{\bm{W}_i,\bm{b}_i\}_{i=1}^L)$ computes for each layer $i$:
+\begin{itemize}
+\item $\bm{z}_i = \bm{W}_i \bm{x}_{i-1} + \bm{b}_i$
+\item $\bm{x}_i = \begin{cases}\exp(\bm{z_i}) & i = L \\\tanh(\bm{z_i}) & \text{otherwise,} \end{cases}$
+\end{itemize}
+The net is initialized with one hidden layer of size 64.
+$t\rightarrow\tilde{t}$ is a linear mapping $[0, 1] \rightarrow [-1, 1]$.
+Samples from randomly initialized net are presented in Figure~\ref{fig:samples_1}.
+
+\subsection{Estimate with Adam (\texttt{06\char`_task1.ipynb})}
+
+Optimizing schema used
+\begin{itemize}
+\item learning rate: $\eta = 0.01$
+\item weight decay: $\lambda = 0.001$ to all parameters except from last bias parameter
+\item last bias parameter starting value: -2
+\item 100 epochs
+\end{itemize}
+Otherwise, default configurations from \texttt{torch.optim.Adam} were used.
+Results, referring to Figure~\ref{fig:data_1}, are presented in Figure~\ref{fig:adam_1} with RMSE.
+
+\section*{Figures}
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.8\textwidth]{./data_1.pdf}
+\caption{Task 1: True kernel width function, and two samples of original signal and noisy output.}
+\label{fig:data_1}
+\end{figure}
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.8\textwidth]{./samples_1.pdf}
+\caption{Task 1: Random samples from the random neural net.}
+\label{fig:samples_1}
+\end{figure}
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.8\textwidth]{./adam_1.pdf}
+\caption{Task 1: Inclusion of estimated kernel width function to Figure~\ref{fig:data_1}.}
+\label{fig:adam_1}
+\end{figure}
+
+
+% \bibliography{../template/references}
+
+\end{document}

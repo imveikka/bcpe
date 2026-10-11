@@ -28,6 +28,5 @@ wheels/
 # Misc
 *.pdf
 *.zip
-
-# Data
+*.pt
 *.h5
